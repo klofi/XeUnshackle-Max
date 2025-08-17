@@ -59,3 +59,6 @@ Any files saved/dumped can be found in the BadUpdatePayload folder of the usb.
 ## Community Translations
 - Spanish - [CiberStore](https://github.com/CiberStore)
 - Portuguese (Brazil) - [ronniegchagas](https://github.com/ronniegchagas)
+
+## Build instructions
+See [BUILD.md](BUILD.md)

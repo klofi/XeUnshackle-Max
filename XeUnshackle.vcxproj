@@ -60,7 +60,10 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <None Include="BUILD.md" />
+    <None Include="README.md" />
     <None Include="ReadMe.txt" />
+    <None Include="build.bat" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dashlaunch.h" />
