@@ -1,0 +1,6 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Boot video tests" type="PowerShellRunType" factoryName="PowerShell" scriptUrl="$PROJECT_DIR$/BootVideo/Tests/run-tests.ps1" workingDirectory="$PROJECT_DIR$" commandOptions="-NoProfile -ExecutionPolicy Bypass">
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

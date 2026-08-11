@@ -27,6 +27,14 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_LTCG|Xbox 360'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
+  <PropertyGroup>
+    <!--
+      Assembled by the PackageForUsbRoot target below. Mirrors the layout of the usb root.
+      Kept unconditional on purpose: the packaging target is unconditional too, and an empty
+      PackageDir would make it write to the root of the current drive.
+    -->
+    <PackageDir>$(OutDir)COPY_TO_USB_ROOT</PackageDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_LTCG|Xbox 360'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -54,13 +62,24 @@
     <ImageXex>
       <ConfigurationFile>AppConf_SectRes.xml</ConfigurationFile>
     </ImageXex>
-    <PostBuildEvent>
-      <Command>mkdir "$(OutDir)COPY_TO_BadUpdatePayload_FOLDER"
-"$(ProjectDir)xextool.exe" -m r -r a -o "$(OutDir)COPY_TO_BadUpdatePayload_FOLDER\default.xex" "$(ImageXexOutput)"</Command>
-    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <None Include="AGENTS.md" />
+    <None Include="AppConf_SectRes.xml" />
     <None Include="BUILD.md" />
+    <None Include="BootVideo\BOOT_VIDEO.md" />
+    <None Include="BootVideo\Tests\TESTING.md" />
+    <None Include="BootVideo\Tests\convert-video.Tests.ps1" />
+    <None Include="BootVideo\Tests\generate-test-fixtures.ps1" />
+    <None Include="BootVideo\Tests\run-tests.ps1" />
+    <None Include="BootVideo\convert-video.bat" />
+    <None Include="BootVideo\convert-video.ps1" />
+    <None Include="CHANGELOG.md" />
+    <None Include="CLAUDE.md" />
+    <None Include="Dist\BadUpdatePayload\BadStorage.xex.dll" />
+    <None Include="Dist\JRPC2.xex" />
+    <None Include="Dist\README - IMPORTANT.txt" />
+    <None Include="Dist\launch.ini" />
     <None Include="README.md" />
     <None Include="ReadMe.txt" />
     <None Include="build.bat" />
@@ -92,4 +111,25 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <!--
+    Assembles the release package: everything in Dist copied verbatim, plus a default.xex made from the xex we
+    just built. Done with tasks rather than a post build event so the Dist tree is mirrored declaratively and
+    Clean can undo it - neither of which a one shot cmd script gives us.
+  -->
+  <Target Name="PackageForUsbRoot" AfterTargets="Build">
+    <ItemGroup>
+      <_PackageFile Include="$(ProjectDir)Dist\**\*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(PackageDir)" />
+    <!-- Made up front so xextool has somewhere to write even when Dist\BadUpdatePayload is empty -->
+    <MakeDir Directories="$(PackageDir)\BadUpdatePayload" />
+    <Copy SourceFiles="@(_PackageFile)" DestinationFiles="@(_PackageFile->'$(PackageDir)\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Exec Command="&quot;$(ProjectDir)xextool.exe&quot; -m r -r a -o &quot;$(PackageDir)\BadUpdatePayload\default.xex&quot; &quot;$(ImagePath)&quot;" />
+    <Message Importance="high" Condition="!Exists('$(PackageDir)\Xbdm.xex')" Text="NOTE: Dist\Xbdm.xex is missing, packaged without it. See BUILD.md." />
+    <Message Importance="high" Text="Package ready at $(PackageDir)" />
+  </Target>
+  <!-- Clean doesn't know about files a custom target created, so the package needs removing by hand -->
+  <Target Name="CleanPackage" AfterTargets="Clean">
+    <RemoveDir Directories="$(PackageDir)" />
+  </Target>
 </Project>

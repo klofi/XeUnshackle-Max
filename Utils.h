@@ -130,3 +130,15 @@ VOID Dump1blRomToFile();
 VOID SaveConsoleDataToFile();
 
 VOID BackupOrigMAC();
+
+// App-wide settings loaded from XeUnshackleConfig.txt.
+typedef struct _Config_t
+{
+	DOUBLE AutoStartDelay;   // Seconds to count down before Auto-Start exits. Negative when Auto-Start is disabled.
+	BOOL PlayVideo;          // Whether to play the boot video before exiting to the menu. Defaults to TRUE, independent of whether Auto-Start is configured.
+	BOOL ShowKeys;           // Whether to show the CPUKey/DVDKey on the main screen. Defaults to TRUE.
+	DWORD VideoVolume;       // Boot video volume, 0-100 on a slider-like taper. Defaults to 100.
+} Config_t;
+
+VOID SaveConfig(Config_t config);
+Config_t LoadConfig();

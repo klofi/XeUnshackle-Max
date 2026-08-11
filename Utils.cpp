@@ -540,3 +540,122 @@ VOID BackupOrigMAC()
 			ShowNotify(currentLocalisation->Dump_MAC_Fail);
 	}
 }
+
+// Using .txt file instead of .ini so user can delete this easily in XeXMenu/Aurora
+#define ConfigFilePath "GAME:\\XeUnshackleConfig.txt"
+
+// Saves settings to the config file.
+VOID SaveConfig(Config_t config)
+{
+	DisableButtons = TRUE;
+
+	// Write as key=value pairs, one per line (e.g. "AutoStartDelay=2.00\nPlayVideo=1")
+	char szFileContent[128];
+	sprintf_s(szFileContent, sizeof(szFileContent), "AutoStartDelay=%.2f\nPlayVideo=%d\nShowKeys=%d\nVideoVolume=%d",
+		config.AutoStartDelay, config.PlayVideo ? 1 : 0, config.ShowKeys ? 1 : 0, config.VideoVolume);
+
+	// Write the string to the file
+	if (CWriteFile(ConfigFilePath, szFileContent, strlen(szFileContent)))
+		ShowNotify(currentLocalisation->SaveAutoStart_Success);
+	else
+		ShowNotify(currentLocalisation->SaveAutoStart_Fail);
+
+	DisableButtons = FALSE;
+}
+
+// Finds "Key=" at the start of a line and returns a pointer to its value, or NULL when the key isn't in the file.
+// Matching only at a line start keeps a longer key name that ends with this one from being picked up by mistake.
+static const char* FindSetting(const char* szSettings, const char* szKey)
+{
+	size_t keyLen = strlen(szKey);
+
+	for (const char* p = szSettings; *p != '\0'; ++p)
+	{
+		if (p != szSettings && p[-1] != '\n' && p[-1] != '\r')
+			continue; // Not the start of a line
+
+		if (strncmp(p, szKey, keyLen) == 0 && p[keyLen] == '=')
+			return p + keyLen + 1;
+	}
+
+	return NULL;
+}
+
+// Checks if the config file exists and loads its settings (key=value pairs, one per line, e.g.
+// "AutoStartDelay=2.00\nPlayVideo=1") from it. Each key is looked up independently, so their order in the file
+// (and whether the other keys are even present) doesn't matter.
+// AutoStartDelay is >= 0.0 when Auto-Start is configured, or -1.0 if it isn't. Boolean settings default
+// to TRUE unless the file sets them to 0.
+Config_t LoadConfig()
+{
+	Config_t settings = { -1.0, TRUE, TRUE, 100 };
+
+	if (!FileExists(ConfigFilePath))
+	{
+		return settings; // No config file - defaults apply.
+	}
+
+	// The file exists, read its content.
+	MemoryBuffer mb;
+	if (!CReadFile(ConfigFilePath, mb) || mb.GetDataLength() == 0)
+	{
+		cprintf("[Config] File exists but is empty or could not be read.");
+		return settings; // Treat as no config.
+	}
+
+	// Copy into a bounded local buffer, clamped to the actual data length, so the settings can be scanned as a string.
+	const char* fileContent = (const char*)mb.GetData();
+	DWORD copyLen = mb.GetDataLength();
+	char szSettings[256] = { 0 };
+	copyLen = std::min<DWORD>(copyLen, sizeof(szSettings) - 1);
+	strncpy_s(szSettings, sizeof(szSettings), fileContent, copyLen);
+
+	// Each key is looked up on its own, so their order and presence in the file doesn't matter. A key keeps its
+	// default when it isn't in the file, and the booleans do too unless their value starts with 0 or 1.
+	const char* pSetting = FindSetting(szSettings, "PlayVideo");
+	if (pSetting && (*pSetting == '0' || *pSetting == '1'))
+	{
+		settings.PlayVideo = *pSetting == '1';
+	}
+
+	pSetting = FindSetting(szSettings, "ShowKeys");
+	if (pSetting && (*pSetting == '0' || *pSetting == '1'))
+	{
+		settings.ShowKeys = *pSetting == '1';
+	}
+
+	pSetting = FindSetting(szSettings, "AutoStartDelay");
+	if (pSetting)
+	{
+		// strtod rather than atof so an unreadable value can be told apart from a real 0, which
+		// would otherwise exit the app the moment it loads
+		char* pEnd;
+		DOUBLE delay = strtod(pSetting, &pEnd);
+		if (pEnd != pSetting && delay >= 0.0)
+		{
+			settings.AutoStartDelay = delay;
+		}
+		else
+		{
+			// A negative delay is the documented way to turn Auto-Start off, so this isn't an error
+			cprintf("[Config] AutoStartDelay is negative or unreadable, leaving Auto-Start disabled.");
+		}
+	}
+
+	pSetting = FindSetting(szSettings, "VideoVolume");
+	if (pSetting)
+	{
+		char* pEnd;
+		DOUBLE volume = strtod(pSetting, &pEnd);
+		if (pEnd != pSetting && volume >= 0.0 && volume <= 100.0)
+		{
+			settings.VideoVolume = (DWORD)volume;
+		}
+		else
+		{
+			cprintf("[Config] VideoVolume is outside 0-100 or unreadable, leaving the video at full volume.");
+		}
+	}
+
+	return settings;
+}

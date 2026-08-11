@@ -8,6 +8,7 @@
 #include <xtl.h>
 #include <xboxmath.h>
 #include <string>
+#include <algorithm>
 #include <xaudio2.h>
 #include <xmedia2.h>
 #include <AtgApp.h>

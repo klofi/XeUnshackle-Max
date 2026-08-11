@@ -2,7 +2,7 @@
 
 ## Requirements
 
-To build XeUnshackle, you need a development environment on Windows, with:
+To build XeUnshackle Max, you need a development environment on Windows, with:
 * Visual Studio 2010
   * VS 2010 Professional ([installer here](https://archive.org/details/en_visual_studio_2010_professional_x86_dvd_509727)), install at minimum these features:
     * Visual C++
@@ -13,6 +13,41 @@ To build XeUnshackle, you need a development environment on Windows, with:
   * Use `XDKSetupXenon21256.3.exe` or `XDKSetupXenon21256.17.exe`, choose Full install
   * Install this **after** VS 2010 and VS 2010 SP1
 * Visual Studio 2019 ([installer here](https://archive.org/download/vs_community__e8aae2bc1239469a8cb34a7eeb742747/vs_community_2019.exe)) or Visual Studio 2022
+
+## Build output
+
+Every build assembles a complete, ready to ship package at `Release_LTCG\COPY_TO_USB_ROOT`, laid out exactly as it needs to be copied to the root of the usb:
+
+```
+COPY_TO_USB_ROOT\
+  BadUpdatePayload\
+    BadStorage.xex.dll
+    default.xex        <- freshly built, replaces the one BadUpdate put there
+  JRPC2.xex
+  Xbdm.xex             <- not in the repo, see below
+  launch.ini
+  README - IMPORTANT.txt
+```
+
+Everything except `default.xex` is copied verbatim from the [`Dist`](Dist) folder, so that folder is the place to edit `launch.ini` or the shipped readme. `default.xex` is produced from the built `XeUnshackle.xex` by `xextool.exe`.
+
+### Xbdm.xex has to be supplied by you
+
+`Xbdm.xex` is not part of this repository and is gitignored, so a fresh clone builds a package without it. The build succeeds either way and prints a note when it was left out. To include it, drop the file into [`Dist`](Dist); the `[Plugins]` section of the shipped `launch.ini` already points at `Usb:\Xbdm.xex`.
+
+## Baking in your own boot video
+
+The boot animation is compiled into `default.xex` from `Media\success.wmv`, so replacing that file and rebuilding changes the video the built app plays.
+
+1. Encode your video as described in [BOOT_VIDEO.md](BootVideo/BOOT_VIDEO.md), writing it straight over the original:
+
+    ```
+    powershell -ExecutionPolicy Bypass -File BootVideo\convert-video.ps1 .\your-video.mp4 .\Media\success.wmv -Force
+    ```
+
+2. Build.
+
+A baked-in video is loaded into memory along with the rest of `default.xex` on every launch, so it grows the app by its own size. This is only worth doing when you are shipping a build that should carry a different video. Anyone who just wants their own video can drop one next to `default.xex` instead, with no rebuild at all, which is what [BOOT_VIDEO.md](BootVideo/BOOT_VIDEO.md) covers.
 
 ## Build in IDE
 
@@ -52,3 +87,5 @@ To run it simply click `Tools` > `Build Solution 32-bit`, the output will appear
 2. Open `Settings` > `Build, Execution, Deployment` > `Toolset and Build` and click on `Custom...` next to `MSBuild version`
 3. Select the 32-bit `Bin\MSBuild.exe` of your installed modern VS (2019+). Note this must **not** be `Bin\amd64\MSBuild.exe` as that would be the incompatible 64-bit version. Example of the correct path: `C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe`
 4. Build Solution (Ctrl+F9)
+
+The repository also ships a **Boot video tests** run configuration for the boot video converter's test suite, which shows up in the run dropdown once the PowerShell plugin is installed. See [BOOT_VIDEO.md](BootVideo/BOOT_VIDEO.md) for the converter itself and [TESTING.md](BootVideo/Tests/TESTING.md) for the tests.

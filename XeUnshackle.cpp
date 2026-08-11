@@ -1,6 +1,6 @@
 //==========================================================================================================================
 //
-//											- XeUnshackle BETA -
+//											- XeUnshackle Max -
 //			A simple app designed to apply a full set of freeboot/xebuild kernel & HV patches to a running system
 //			after running the Xbox360BadUpdate HV exploit. Sets up & loads a version of launch.xex (Dashlaunch)
 //          designed to run from hdd or usb root rather than flash (nand).
@@ -25,20 +25,35 @@
 
 #include "stdafx.h"
 
-FLOAT APP_VERS = 1.03;
+const WCHAR* APP_VERS = L"1.0.0";
 
-const CHAR* g_strMovieName = "embed:\\VID";
+// A video dropped next to the .xex (in the BadUpdatePayload folder) is played in place of the built-in one.
+// Named after the app like XeUnshackleConfig.txt rather than "bootanim", which in this scene means the
+// file in flash that must never be replaced.
+#define ExternalVideoPath "GAME:\\XeUnshackleVideo.wmv"
 
 // Get global access to the main D3D device
 extern D3DDevice* g_pd3dDevice;
 DWORD YellowText = 0xFFFFFF00;
 DWORD WhiteText = 0xFFFFFFFF;
+DWORD GreyText = 0xFF808080;
+DOUBLE dDefaultAutoStartTimer = 2; // 2 seconds
+// What the config file holds, kept whole so saving never drops a setting. Assigned in main() before the ui runs
+Config_t savedConfig = { -1.0, TRUE, TRUE, 100 };
+BOOL bShowKeys = TRUE; // On-screen key visibility. Toggled with A, never saved to the config
 BOOL bShouldPlaySuccessVid = FALSE;
 WCHAR wTitleHeaderBuf[100];
 WCHAR wCPUKeyBuf[150];
 WCHAR wDVDKeyBuf[50];
 WCHAR wConTypeBuf[50];
 WCHAR wBadStorageStatusBuf[21];
+
+// Drawn in place of the real keys while they are hidden. Both keys are always the same
+// fixed length (4 x %08X = 32 digits), so the mask is a literal rather than something built at runtime.
+#define KEY_HIDDEN_DIGITS L"********************************"
+C_ASSERT(_countof(KEY_HIDDEN_DIGITS) == 32 + 1);
+const WCHAR* wCPUKeyHidden = L"CPUKey: " KEY_HIDDEN_DIGITS;
+const WCHAR* wDVDKeyHidden = L"DVDKey: " KEY_HIDDEN_DIGITS;
 
 //--------------------------------------------------------------------------------------
 // Name: class Sample
@@ -56,9 +71,6 @@ class XeUnshackle : public ATG::Application
     // Tell XMV player about scaling and rotation parameters.
     VOID            InitVideoScreen();
 
-    // Buffer for holding XMV data when playing from memory.
-    VOID* m_movieBuffer;
-
     // XAudio2 object.
     IXAudio2* m_pXAudio2;
 
@@ -67,7 +79,18 @@ class XeUnshackle : public ATG::Application
     ATG::Help m_Help;
     BOOL m_bDrawHelp;
 
-    BOOL m_bFailed;
+    // Countdown timer to app exiting when using Auto-Start
+    DOUBLE m_autoStartExitTimer;
+
+public:
+    VOID SetAutoStartExitTimer(DOUBLE timerValue)
+    {
+        if (timerValue >= 0.0)
+        {
+            m_Timer.GetElapsedTime(); // Prime the timer to reset the value since last call
+        }
+        m_autoStartExitTimer = timerValue;
+    }
 
 private:
     virtual HRESULT Initialize();
@@ -83,7 +106,6 @@ private:
 HRESULT XeUnshackle::Initialize()
 {
     m_xmvPlayer = 0;
-    m_movieBuffer = 0;
 
     // Initialize the XAudio2 Engine. The XAudio2 Engine is needed for movie playback.
     UINT32 flags = 0;
@@ -100,14 +122,17 @@ HRESULT XeUnshackle::Initialize()
     if (FAILED(hr))
         ATG::FatalError("Error %#X calling CreateMasteringVoice\n", hr);
 
+    // SetVolume takes an amplitude multiplier and loudness is logarithmic, so square the fraction for a slider-like taper.
+    // This only scales this app's playback and leaves the console's system volume alone.
+    const float fVolume = savedConfig.VideoVolume / 100.0f;
+    pMasteringVoice->SetVolume(fVolume * fVolume);
+
     // Create the font
     if (FAILED(m_Font.Create("embed:\\FONT")))
         return ATGAPPERR_MEDIANOTFOUND;
 
     // Confine text drawing to the title safe area
     m_Font.SetWindow(ATG::GetTitleSafeArea());
-
-    m_bFailed = FALSE;
 
     return S_OK;
 }
@@ -182,6 +207,41 @@ HRESULT XeUnshackle::Update()
     // Get the current gamepad state
     ATG::GAMEPAD* pGamepad = ATG::Input::GetMergedInput();
 
+    // If the Auto-Start timer is active, count it down (optionally letting the boot video play first)
+    if(m_autoStartExitTimer >= 0.0)
+    {
+        if (!DisableButtons && (pGamepad->wPressedButtons & XINPUT_GAMEPAD_B))
+        {
+            // Cancel Auto-Start, stopping the boot video too if it's currently playing
+            if (m_xmvPlayer)
+            {
+                m_xmvPlayer->Stop(XMEDIA_STOP_IMMEDIATE);
+            }
+            SetAutoStartExitTimer(-1.0);
+            return S_OK;
+        }
+
+        // Count down once the boot video is done playing (or was never requested). While it's
+        // still playing or pending, fall through to the normal video playback logic below instead.
+        if (!m_xmvPlayer && !bShouldPlaySuccessVid)
+        {
+            m_autoStartExitTimer -= m_Timer.GetElapsedTime();
+
+            // When the timer runs out, launch the default app
+            if (m_autoStartExitTimer <= 0.0)
+            {
+                XLaunchNewImage(XLAUNCH_KEYWORD_DEFAULT_APP, 0);
+            }
+
+            // Return here so video playback and button presses are not processed when using Auto-Start
+            return S_OK;
+        }
+
+        // Keep the countdown timer primed while the boot video plays, so the time spent
+        // playing the video isn't subtracted from the countdown once it actually starts.
+        m_Timer.GetElapsedTime();
+    }
+
     if (m_xmvPlayer)
     {
         // 'B' means cancel the movie.
@@ -193,7 +253,7 @@ HRESULT XeUnshackle::Update()
     else
     {
         // Play the movie if required
-        if (bShouldPlaySuccessVid)  //(pGamepad->wPressedButtons & XINPUT_GAMEPAD_A)
+        if (bShouldPlaySuccessVid)
         {
             XMEDIA_XMV_CREATE_PARAMETERS XmvParams;
 
@@ -208,47 +268,77 @@ HRESULT XeUnshackle::Update()
             XmvParams.dwAudioStreamId = XMEDIA_STREAM_ID_USE_DEFAULT;
             XmvParams.dwVideoStreamId = XMEDIA_STREAM_ID_USE_DEFAULT;
 
-            // Play the movie if required
-            //if (bShouldPlaySuccessVid)  //(pGamepad->wPressedButtons & XINPUT_GAMEPAD_A)
-            //{
             bShouldPlaySuccessVid = FALSE; // Reset so we don't play again
-            // Start a movie playing from a file.
-            m_bFailed = FALSE;
 
-            // Set the parameters to load the movie from a file.
-            //XmvParams.createType = XMEDIA_CREATE_FROM_FILE;
-            //XmvParams.createFromFile.szFileName = g_strMovieName;
-
-            // Create from embedded resource
-            VOID* pSectionData;
-            DWORD dwSectionSize;
-            HMODULE hModule = GetModuleHandle(NULL);
-            if (XGetModuleSection(hModule, "VID", &pSectionData, &dwSectionSize))
+            // Play the user's own video when they've put one next to the .xex. It's streamed straight from
+            // the file so a large video costs no extra memory, unlike the embedded one below.
+            if (FileExists(ExternalVideoPath))
             {
+                cprintf("[XeUnshackle] Found %s, playing it in place of the built-in video", ExternalVideoPath);
 
-                XmvParams.createType = XMEDIA_CREATE_FROM_MEMORY;
-                XmvParams.createFromMemory.pvBuffer = pSectionData;
-                XmvParams.createFromMemory.dwBufferSize = dwSectionSize;
-                /// Additional fields can be set to control how file IO is done.
+                XmvParams.createType = XMEDIA_CREATE_FROM_FILE;
+                XmvParams.createFromFile.szFileName = ExternalVideoPath;
+                // The remaining createFromFile fields are left zeroed to use the default file IO behaviour.
 
                 HRESULT hr = XMedia2CreateXmvPlayer(m_pd3dDevice, m_pXAudio2, &XmvParams, &m_xmvPlayer);
-                if (SUCCEEDED(hr))
+                if (FAILED(hr))
                 {
-                    InitVideoScreen();
-                }
-                else
-                {
-                    m_bFailed = TRUE;
+                    // The file is there but unplayable (an mp4 renamed to .wmv, for example), so fall back to
+                    // the built-in video rather than dropping the user straight to the info screen. Notify
+                    // them too, otherwise the built-in video playing looks like their file was ignored.
+                    m_xmvPlayer = 0; // A failed create must not leave a stale pointer behind
+                    cprintf("[XeUnshackle] Error %#X playing %s. Falling back to the built-in video...", hr, ExternalVideoPath);
+                    ShowNotify(currentLocalisation->CustomVideo_Fail);
                 }
             }
-            else
-                m_bFailed = TRUE;
+
+            // Create from embedded resource unless the user's own video is already playing
+            if (!m_xmvPlayer)
+            {
+                VOID* pSectionData;
+                DWORD dwSectionSize;
+                HMODULE hModule = GetModuleHandle(NULL);
+                if (XGetModuleSection(hModule, "VID", &pSectionData, &dwSectionSize))
+                {
+                    XmvParams.createType = XMEDIA_CREATE_FROM_MEMORY;
+                    XmvParams.createFromMemory.pvBuffer = pSectionData;
+                    XmvParams.createFromMemory.dwBufferSize = dwSectionSize;
+
+                    if (FAILED(XMedia2CreateXmvPlayer(m_pd3dDevice, m_pXAudio2, &XmvParams, &m_xmvPlayer)))
+                    {
+                        m_xmvPlayer = 0;
+                    }
+                }
+            }
+
+            if (m_xmvPlayer)
+            {
+                InitVideoScreen();
+            }
         }
-        if (!DisableButtons)
+
+        // Only process these while Auto-Start isn't active (Auto-Start's B-cancel is handled above),
+        // and not on the frame a video just started playing.
+        if (!m_xmvPlayer && !DisableButtons && m_autoStartExitTimer < 0.0)
         {
             if (pGamepad->wPressedButtons & XINPUT_GAMEPAD_BACK)
             {
                 XLaunchNewImage(XLAUNCH_KEYWORD_DEFAULT_APP, 0);
+            }
+            else if (pGamepad->wPressedButtons & XINPUT_GAMEPAD_START)
+            {
+                if (savedConfig.AutoStartDelay >= 0.0)
+                {
+                    SetAutoStartExitTimer(savedConfig.AutoStartDelay);
+                }
+                else
+                {
+                    // Only Auto-Start is being set up here, so every other setting is written back
+                    // with the value it was loaded with (a hand-set ShowKeys=0 survives, for example)
+                    savedConfig.AutoStartDelay = dDefaultAutoStartTimer;
+                    SaveConfig(savedConfig);
+                    SetAutoStartExitTimer(dDefaultAutoStartTimer);
+                }
             }
             else if (pGamepad->wPressedButtons & XINPUT_GAMEPAD_X)
             {
@@ -257,6 +347,11 @@ HRESULT XeUnshackle::Update()
             else if (pGamepad->wPressedButtons & XINPUT_GAMEPAD_Y)
             {
                 Dump1blRomToFile();
+            }
+            else if (pGamepad->wPressedButtons & XINPUT_GAMEPAD_A)
+            {
+                // Show/hide the keys for this session only, never written to the config
+                bShowKeys = !bShowKeys;
             }
         }
     }
@@ -299,13 +394,6 @@ HRESULT XeUnshackle::Render()
             // Movie playback changes various D3D states, so you should reset the
             // states that you need after movie playback is finished.
             m_pd3dDevice->SetRenderState(D3DRS_VIEWPORTENABLE, TRUE);
-
-            // Free up any memory allocated for playing from memory.
-            if (m_movieBuffer)
-            {
-                free(m_movieBuffer);
-                m_movieBuffer = 0;
-            }
         }
 
     }
@@ -338,17 +426,35 @@ HRESULT XeUnshackle::Render()
 
         // Console Info
         m_Font.DrawText(0, 460, YellowText, wConTypeBuf);
-        m_Font.DrawText(0, 490, YellowText, wCPUKeyBuf);
-        m_Font.DrawText(0, 520, YellowText, wDVDKeyBuf);
+        m_Font.DrawText(0, 490, YellowText, bShowKeys ? wCPUKeyBuf : wCPUKeyHidden);
+        m_Font.DrawText(0, 520, YellowText, bShowKeys ? wDVDKeyBuf : wDVDKeyHidden);
 
-        m_Font.DrawText(0, 570, YellowText, L"https://github.com/Byrom90/XeUnshackle");
-        m_Font.DrawText(0, 600, YellowText, L"https://byrom.uk");
+        m_Font.DrawText(0, 570, YellowText, L"Max: https://github.com/Klofi/XeUnshackle-Max");
+        m_Font.DrawText(0, 600, YellowText, L"Original: https://github.com/Byrom90/XeUnshackle");
 
-        // User input with buttons - Make these white so they display correctly and stand out to the user
-        m_Font.DrawText(840, 530, WhiteText, currentLocalisation->MainScrBtnSaveInfo);// X button icon with text 
-        m_Font.DrawText(840, 560, WhiteText, currentLocalisation->MainScrBtnDump1BL);// Y button icon with text
+        // If the timer is not active, draw the normal button prompts, otherwise draw the countdown text
+        if (m_autoStartExitTimer < 0.0)
+        {
+            // User input with buttons - Make these white so they display correctly and stand out to the user.
+            // The actions on this screen sit in the top group, leaving/configuring the app in the bottom one.
+            m_Font.DrawText(740, 460, WhiteText, currentLocalisation->MainScrBtnSaveInfo);// X button icon with text
+            m_Font.DrawText(740, 490, WhiteText, currentLocalisation->MainScrBtnDump1BL);// Y button icon with text
+            m_Font.DrawText(740, 520, WhiteText, bShowKeys ? currentLocalisation->MainScrBtnHideKeys : currentLocalisation->MainScrBtnShowKeys);// A button icon with text
 
-        m_Font.DrawText(840, 600, WhiteText, currentLocalisation->MainScrBtnExit);// Back button icon with text
+            m_Font.DrawText(740, 560, WhiteText, currentLocalisation->MainScrBtnExit);// Back button icon with text
+            m_Font.DrawText(740, 600, WhiteText, currentLocalisation->MainScrBtnAutoStartSet);// Start button icon with text
+        }
+        else
+        {
+            // Format the string to include countdown value
+            WCHAR szCountdown[150];
+            swprintf_s(szCountdown, currentLocalisation->MainScrAutoStartRunning, m_autoStartExitTimer);
+
+            // Draw the countdown text where the button prompts would normally be
+            m_Font.DrawText(740, 570, GreyText, szCountdown);
+            m_Font.DrawText(740, 600, WhiteText, currentLocalisation->MainScrBtnAutoStartCancel);// B button icon with text
+        }
+
         m_Font.End();
     }
 
@@ -472,7 +578,7 @@ VOID __cdecl main()
 
     // Grab some stuff for display in the ui
     ZeroMemory(wTitleHeaderBuf, sizeof(wTitleHeaderBuf));
-    swprintf_s(wTitleHeaderBuf, L"%ls XeUnshackle v%.2f BETA %ls", GLYPH_RIGHT_TICK, APP_VERS, GLYPH_LEFT_TICK);
+    swprintf_s(wTitleHeaderBuf, L"%ls XeUnshackle Max v%ls %ls", GLYPH_RIGHT_TICK, APP_VERS, GLYPH_LEFT_TICK);
     // Motherboard type
     ZeroMemory(wConTypeBuf, sizeof(wConTypeBuf));
     swprintf_s(wConTypeBuf, L"Console type: %S", GetMoboByHWFlags().c_str());
@@ -496,6 +602,13 @@ VOID __cdecl main()
     // For movie playback we want to synchronize to the monitor.
     atgApp.m_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
     ATG::GetVideoSettings(&atgApp.m_d3dpp.BackBufferWidth, &atgApp.m_d3dpp.BackBufferHeight);
-    bShouldPlaySuccessVid = TRUE;
+
+    // Load the config; AutoStartDelay will be negative when Auto-Start isn't set up, so it doesn't trigger countdown
+    savedConfig = LoadConfig();
+    // ShowKeys only seeds the initial visibility, toggling with A afterward never touches the config
+    bShowKeys = savedConfig.ShowKeys;
+    bShouldPlaySuccessVid = savedConfig.PlayVideo;
+    atgApp.SetAutoStartExitTimer(savedConfig.AutoStartDelay);
+
     atgApp.Run();
 }

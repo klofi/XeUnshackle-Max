@@ -1,5 +1,7 @@
-# XeUnshackle
+# XeUnshackle Max
 ![XeUnshackle_Banner](https://github.com/user-attachments/assets/af37d4ae-4ff6-4175-8f81-47869ff63ed6)
+
+> XeUnshackle Max is an independent fork of [Byrom90/XeUnshackle](https://github.com/Byrom90/XeUnshackle). All original code and core development belong to [Byrom90](https://github.com/Byrom90).
 
 Custom Xbox 360 application designed to be used with the [Xbox360BadUpdate](https://github.com/grimdoomer/Xbox360BadUpdate) exploit.  
 
@@ -11,7 +13,7 @@ Custom Xbox 360 application designed to be used with the [Xbox360BadUpdate](http
 > [!CAUTION]
 > * **BACKUP YOUR NAND!** This should be the first thing you do.
 > * **DO NOT FLASH MODIFIED NAND IMAGES!** You will **brick** your console.
-> * **DO NOT REPLACE FILES IN FLASH!** This includes things like replacing the bootanim.
+> * **DO NOT REPLACE FILES IN FLASH!** This includes things like replacing the bootanim — doing that with an unsigned file locks you out of using BadUpdate. If it has already happened to you, BadUpdate v1.3 added a [boot animation recovery mode](https://github.com/grimdoomer/Xbox360BadUpdate/tree/v1.3#boot-animation-recovery-mode) that restores the stock file.
 > * Avoid using homebrew or plugins that make changes to FLASH (the nand).
 > * Read the **README - IMPORTANT.txt** in the release files for important notes regarding the use of Stealth Servers.
 
@@ -28,6 +30,26 @@ Nothing here is particularly new. It's simply a collection of existing code that
 - Restores the default state of the Ring of Light and allows controller syncing to function as normal. Thanks [InvoxiPlayGames](https://github.com/InvoxiPlayGames)
 - Loads a slightly modified version of launch.xex (Dashlaunch). Due to it not being stored within the nands filesystem it is loaded from app memory and lhelper.xex is copied to either Hdd or Usb root depending on what's available at load time.
 - Simple GUI consisting of a short boot animation video followed by a page displaying both the CPUKey and DVDKey of the console.
+- Ability to use your own boot animation without rebuilding the app: put a video named `XeUnshackleVideo.wmv` next to `default.xex` in the `BadUpdatePayload` folder, and it plays in place of the built-in one. Delete the file to go back to the built-in video. It has to be encoded in a format the console can play — see [BOOT_VIDEO.md](BootVideo/BOOT_VIDEO.md). This is the app's own video, not the console's bootanim in flash.
+- Ability to hide the CPUKey/DVDKey behind `*` characters with the **A** button, so the screen can be photographed or streamed without exposing them. Only the display is affected — the `ConsoleInfo.txt` written by **X** always contains the real keys. The toggle applies to the current session only; the `ShowKeys` setting below controls which state the app starts in.
+- Ability to set "Auto-Start" via button press, which automatically exits the simple GUI after a short delay on future launches. Auto-Start and other settings are controlled by a single `XeUnshackleConfig.txt` file in the `BadUpdatePayload` folder — pressing **Start** is just one way to create it; the file can also be created or edited by hand for any of its settings, independently of Auto-Start.
+    * **Enabling**: Pressing the **Start** button creates `XeUnshackleConfig.txt` with these defaults and immediately enables Auto-Start:
+      ```
+      AutoStartDelay=2.00
+      PlayVideo=1
+      ShowKeys=1
+      VideoVolume=100
+      ```
+      If the file already exists, pressing **Start** only ever touches `AutoStartDelay` — every other setting keeps the value it already has. It writes `2.00` when Auto-Start is off (`AutoStartDelay=-1`, or no such line at all) and leaves the file alone when Auto-Start is already on, so a hand-set `AutoStartDelay=10` stays 10.
+    * **Customizing**: Edit the file's `key=value` lines. A key left out of the file falls back to its default below:
+
+      | Key | Description | Valid values | Default |
+      |---|---|---|---|
+      | `AutoStartDelay` | Countdown in seconds before Auto-Start exits | Number ≥ `0` (e.g. `0`, `1.5`, `10`); negative disables Auto-Start | Auto-Start disabled |
+      | `PlayVideo` | Whether the boot animation plays; set `0` to make Auto-Start exit without sitting through it | `0` or `1` | `1` (on) |
+      | `ShowKeys` | Whether the CPUKey/DVDKey start out shown on the main screen; the **A** button toggles them afterwards without changing this file | `0` or `1` | `1` (on) |
+      | `VideoVolume` | Volume of the boot animation, on a scale that behaves like a volume slider, so `50` sounds about half as loud. Only scales this app's own playback, never the console's system volume | `0` to `100` | `100` (full) |
+    * **Disabling**: Set `AutoStartDelay=-1` to turn off Auto-Start while keeping the other settings, or delete the whole `XeUnshackleConfig.txt` file to reset everything to its default, using a file manager like XeXMenu or Aurora.
 - Ability to dump 1BL to file via button press. This may be particularly useful for those wanting to use the Low Level [Xenon](https://github.com/xenon-emu/xenon) Emulator.
 - Automatic dumping of the current MAC address on first load. This is often changed by stealth servers during the initial KV spoofing. Only other way to retrieve the original is from a nand backup taken BEFORE loading a stealth.
 - Applies Usbdsec patches to allow non-360 XInput controllers. Thanks [InvoxiPlayGames](https://github.com/InvoxiPlayGames)
@@ -44,6 +66,7 @@ Dashlaunch will then attempt to load any plugins set when exiting the app and re
 Any files saved/dumped can be found in the BadUpdatePayload folder of the usb.
 
 ## Credits
+- [Byrom90](https://github.com/Byrom90) - original [XeUnshackle](https://github.com/Byrom90/XeUnshackle) application
 - [grimdoomer](https://github.com/grimdoomer) - [Xbox360BadUpdate](https://github.com/grimdoomer/Xbox360BadUpdate) exploit
 - cOz - xeBuild patches, Dashlaunch & much more
 - [Visual Studio / Goobycorp](https://github.com/GoobyCorp)
@@ -53,6 +76,8 @@ Any files saved/dumped can be found in the BadUpdatePayload folder of the usb.
 - ikari - freeBOOT
 - [Jeff Hamm](https://www.youtube.com/watch?v=PantVXVEVUg) - Chain break video
 - [EatonZ](https://github.com/EatonZ) - [Xbox 360 Bad Storage](https://github.com/EatonZ/BadStorage)
+- Xx jAmes t xX - JRPC2 plugin
+- [TheRealMSL](https://github.com/TheRealMSL) - [MEE4](https://en.wikipedia.org/wiki/Microsoft_Expression_Encoder) part of [BOOT_VIDEO.md](BootVideo/BOOT_VIDEO.md) guide
 - [Xbox360Hub Discord #coding-corner](https://xbox360hub.com/)
 - Anyone else who has contributed anything to the 360 scene. Apologies if any credits were missed.
 

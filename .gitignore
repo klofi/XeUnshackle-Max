@@ -3,6 +3,9 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+# Not part of this repository, supply it yourself - see BUILD.md
+Dist/Xbdm.xex
+
 # User-specific files
 *.rsuser
 *.suo
